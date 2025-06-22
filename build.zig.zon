@@ -1,0 +1,14 @@
+.{
+    .name = .zfc,
+    .version = "0.1.0",
+    .fingerprint = 0x413bc8571422e834,
+    .minimum_zig_version = "0.14.1",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "zig-flag.zig",
+        "readme.md",
+        "license",
+    },
+}
