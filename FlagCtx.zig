@@ -44,11 +44,22 @@ fn FlagValTypeArg(comptime flag_type: FlagType) type {
 
 fn FlagValTypeRet(comptime flag_type: FlagType) type {
     return switch (flag_type) {
-        .Bool => bool,
-        .U64 => u64,
-        .Size => usize,
-        .Str => cstr,
-        .List => FlagList,
+        .Bool => *const bool,
+        .U64 => *const u64,
+        .Size => *const usize,
+        .Str => *const cstr,
+        .List => *FlagList,
+        .External => unreachable,
+    };
+}
+
+fn FlagValTypePtr(comptime flag_type: FlagType) type {
+    return switch (flag_type) {
+        .Bool => *bool,
+        .U64 => *u64,
+        .Size => *usize,
+        .Str => *cstr,
+        .List => *FlagList,
         .External => unreachable,
     };
 }
@@ -76,7 +87,7 @@ pub fn deinit(self: *Self) void {
 }
 
 /// Adds a flag to the context with `name`, `description` and return a const pointer for the value initialized with `def` and updated after `parse`.
-pub fn flagNew(self: *Self, comptime flag_type: FlagType, comptime name: cstr, comptime desc: cstr, comptime def: FlagValTypeArg(flag_type)) *const FlagValTypeRet(flag_type) {
+pub fn flagNew(self: *Self, comptime flag_type: FlagType, comptime name: cstr, comptime desc: cstr, comptime def: FlagValTypeArg(flag_type)) FlagValTypeRet(flag_type) {
     if (self.flag_count >= FLAG_CAP) {
         @panic("excessive args");
     }
@@ -105,7 +116,7 @@ pub fn flagNew(self: *Self, comptime flag_type: FlagType, comptime name: cstr, c
 }
 
 /// Adds a flag to the context with `name`, `description` and stores the value in the pointer supplied(`ptr`) initialized with `def` and updated after `parse`.
-pub fn flagVar(self: *Self, comptime flag_type: FlagType, comptime ptr: *FlagValTypeRet(flag_type), comptime name: cstr, comptime desc: cstr, comptime def: FlagValTypeArg(flag_type)) void {
+pub fn flagVar(self: *Self, comptime flag_type: FlagType, comptime ptr: FlagValTypePtr(flag_type), comptime name: cstr, comptime desc: cstr, comptime def: FlagValTypeArg(flag_type)) void {
     if (self.flag_count >= FLAG_CAP) {
         @panic("excessive args");
     }
@@ -281,9 +292,9 @@ pub fn parse(self: *Self) ParseError!void {
                         self.parse_error_name = flag.name;
                         return self.parse_error;
                     },
-                    .External => switch (flag.val.External) {
+                    .External => |*ext| switch (ext.*) {
                         .External => unreachable,
-                        .List => flag.val.External.List.append(flag_val.Str) catch |err| {
+                        .List => ext.List.append(flag_val.Str) catch |err| {
                             self.parse_error = err;
                             self.parse_error_name = flag.name;
                             return self.parse_error;
