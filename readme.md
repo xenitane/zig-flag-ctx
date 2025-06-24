@@ -28,13 +28,13 @@ exe.root_module.addImport("zfc", zig_flag.module("zfc"));
 
 ## API
 
-- `init(ac: allocator, args: []const [:0]const u8) !FlagCtx`: Initializes a flag context.
+- `init(ac: allocator, args: []const [:0]const u8) FlagCtx`: Initializes a flag context.
 - `deinit() void`: Frees the context.
 - `flagNew(comptime flag_type: FlagType, comptime name: cstr, comptime desc: cstr, comptime def: FlagValTypeArg(flag_type)) *const FlagValTypeRet(flag_type)`: Adds a flag to the context with `name`, `description` and return a const pointer for the value initialized with `def` and updated after `parse`.
 - `flagVar(comptime flag_type: FlagType, comptime ptr: *FlagValTypeRet(flag_type), comptime name: cstr, comptime desc: cstr, comptime def: FlagValTypeArg(flag_type)) void`: Adds a flag to the context with `name`, `description` and stores the value in the pointer supplied(`ptr`) initialized with `def` and updated after `parse`.
 - `usage() void`: Pretty prints the usage message for the flags.
 - `hasArgs() bool`: Returns true if there are args left to parse.
-- `restArgs() []const [:0]const u8`: All the args the parser has not seen yet
+- `restArgs() []const [:0]const u8`: Return all the args the parser has not seen yet
 - `nextArg() ?[:0]const u8`: Returns the first arg not seen by parser otherwise `null`
 - `parse() ParserError!void`: Parse the flags supplies with `init` or returns an error if any happens during parsing.
 - `printError() void`: Prints the error message for the error occurred during parsing
@@ -62,7 +62,7 @@ pub fn main() !void {
     const args = try std.process.argsWithAlloc(da);
     defer std.process.argsFree(args, da);
 
-    const flag_ctx = try FlagCtx.init(da, args);
+    const flag_ctx = FlagCtx.init(da, args);
     defer flag_ctx.deinit();
 
     
@@ -74,6 +74,7 @@ pub fn main() !void {
 
     while (flag_ctx.hasArgs()) {
         flag_ctx.parse() catch {
+            flag_ctx.usage();
             flag_ctx.printError();
             std.process.exit(1);
         }
