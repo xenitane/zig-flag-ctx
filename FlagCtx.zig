@@ -13,12 +13,12 @@ const FlagVal = union(FlagType) { Bool: bool, U64: u64, Size: usize, Str: cstr, 
 
 const Flag = struct { name: cstr, desc: cstr, kind: FlagType, def: FlagVal, val: FlagVal };
 
-pub const ParseError = error{ NoError, Unknown, NoValue, InvalidBool, InavlidSizeSuffix } || std.fmt.ParseIntError || std.mem.Allocator.Error;
+pub const ParseError = error{ NoError, Unknown, NoValue, InvalidBool, InavlidSizeSuffix, OOMProgramName } || std.fmt.ParseIntError || std.mem.Allocator.Error;
 
 const FLAG_CAP = if (@hasDecl(root, "FLAG_CAP") and @TypeOf(root.FLAG_CAP) == comptime_int) root.FLAG_CAP else 256;
 const Self = @This();
 
-program_name: cstr,
+program_name: cstr = "",
 
 flags: [FLAG_CAP]Flag = undefined,
 flag_count: usize = 0,
@@ -29,7 +29,7 @@ parse_error_name: cstr = "",
 args: []const cstr,
 cur_arg: usize = 0,
 
-arena: std.heap.ArenaAllocator,
+ctx_arena: std.heap.ArenaAllocator,
 
 fn FlagValTypeArg(comptime flag_type: FlagType) type {
     return switch (flag_type) {
@@ -75,14 +75,13 @@ fn parseBool(val: [:0]const u8) ParseError!bool {
 }
 
 /// Initializes a flag context.
-pub fn init(ac: std.mem.Allocator, args: []const cstr) !Self {
-    var arena = std.heap.ArenaAllocator.init(ac);
-    return .{ .program_name = try arena.allocator().dupeZ(u8, std.fs.path.basename(args[0])), .args = args[1..], .arena = arena };
+pub fn init(ac: std.mem.Allocator, args: []const cstr) Self {
+    return .{ .args = args, .ctx_arena = .init(ac) };
 }
 
 ///  Frees the context.
 pub fn deinit(self: *Self) void {
-    self.arena.deinit();
+    self.ctx_arena.deinit();
     self.* = undefined;
 }
 
@@ -102,12 +101,12 @@ pub fn flagNew(self: *Self, comptime flag_type: FlagType, comptime name: cstr, c
         .kind = flag_type,
         .def = switch (flag_type) {
             .External => unreachable,
-            .List => .{ .List = .init(self.arena.allocator()) },
+            .List => .{ .List = .init(self.ctx_arena.allocator()) },
             else => @unionInit(FlagVal, @tagName(flag_type), def),
         },
         .val = switch (flag_type) {
             .External => unreachable,
-            .List => .{ .List = .init(self.arena.allocator()) },
+            .List => .{ .List = .init(self.ctx_arena.allocator()) },
             else => @unionInit(FlagVal, @tagName(flag_type), def),
         },
     };
@@ -129,7 +128,7 @@ pub fn flagVar(self: *Self, comptime flag_type: FlagType, comptime ptr: FlagValT
         .kind = flag_type,
         .def = switch (flag_type) {
             .External => unreachable,
-            .List => .init(self.arena.allocator()),
+            .List => .init(self.ctx_arena.allocator()),
             else => @unionInit(FlagVal, @tagName(flag_type), def),
         },
         .val = .{ .External = @unionInit(External, @tagName(flag_type), ptr) },
@@ -193,6 +192,17 @@ pub fn parse(self: *Self) ParseError!void {
         return;
     }
 
+    if (self.program_name.len == 0) {
+        self.program_name = self.ctx_arena.allocator().dupeZ(u8, self.nextArg() orelse unreachable) catch {
+            self.parse_error = ParseError.OOMProgramName;
+            return self.parse_error;
+        };
+    }
+
+    if (!self.hasArgs()) {
+        return;
+    }
+
     {
         const arg = self.args[self.cur_arg];
         if (arg.len > 0 and (arg[0] != '-' or (arg.len == 2 and arg[1] == '-'))) {
@@ -204,10 +214,12 @@ pub fn parse(self: *Self) ParseError!void {
         if (raw_arg.len == 0) {
             continue;
         }
+
         var ref_arg: cstr = raw_arg[1..];
         if (ref_arg.len > 0 and ref_arg[0] == '-') {
             ref_arg = ref_arg[1..];
         }
+
         for (0..self.flag_count) |flag_idx| {
             var flag = &self.flags[flag_idx];
             const flag_name_len = flag.name.len;
@@ -273,7 +285,7 @@ pub fn parse(self: *Self) ParseError!void {
                             return self.parse_error;
                         } };
                     },
-                    .Str => .{ .Str = self.arena.allocator().dupeZ(u8, val) catch |err| {
+                    .Str => .{ .Str = self.ctx_arena.allocator().dupeZ(u8, val) catch |err| {
                         self.parse_error = err;
                         self.parse_error_name = flag.name;
                         return self.parse_error;
@@ -306,6 +318,7 @@ pub fn parse(self: *Self) ParseError!void {
         } else {
             self.parse_error = ParseError.Unknown;
             self.parse_error_name = ref_arg;
+            return self.parse_error;
         }
     }
 }
@@ -320,5 +333,6 @@ pub fn printError(self: Self) void {
         ParseError.Overflow => std.debug.print("ERROR: -{s}: integer overflow\n", .{self.parse_error_name}),
         ParseError.InavlidSizeSuffix => std.debug.print("ERROR: -{s}: invalid size suffix\n", .{self.parse_error_name}),
         ParseError.OutOfMemory => std.debug.print("ERROR: -{s}: Ran out of memory while processing\n", .{self.parse_error_name}),
+        ParseError.OOMProgramName => std.debug.print("ERROR: Ran out of memory while processing\n", .{}),
     }
 }
