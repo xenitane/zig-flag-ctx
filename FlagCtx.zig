@@ -193,26 +193,19 @@ pub fn parse(self: *Self) ParseError!void {
     }
 
     if (self.program_name.len == 0) {
-        self.program_name = self.ctx_arena.allocator().dupeZ(u8, self.nextArg() orelse unreachable) catch {
+        self.program_name = self.ctx_arena.allocator().dupeZ(u8, std.fs.path.basename(self.nextArg() orelse unreachable)) catch {
             self.parse_error = ParseError.OOMProgramName;
             return self.parse_error;
         };
     }
 
-    if (!self.hasArgs()) {
-        return;
-    }
-
-    {
-        const arg = self.args[self.cur_arg];
-        if (arg.len > 0 and (arg[0] != '-' or (arg.len == 2 and arg[1] == '-'))) {
-            return;
-        }
-    }
-
     while (self.nextArg()) |raw_arg| {
         if (raw_arg.len == 0) {
             continue;
+        }
+
+        if (raw_arg.len > 0 and (raw_arg[0] != '-' or (raw_arg.len == 2 and raw_arg[1] == '-'))) {
+            return;
         }
 
         var ref_arg: cstr = raw_arg[1..];
@@ -226,7 +219,7 @@ pub fn parse(self: *Self) ParseError!void {
 
             if (std.mem.startsWith(u8, ref_arg, flag.name)) {
                 const val: [:0]const u8 = if (ref_arg.len == flag_name_len) blk: {
-                    if (flag.val == .Bool) {
+                    if (flag.kind == .Bool) {
                         break :blk "1";
                     }
                     const val = self.nextArg() orelse {
@@ -314,6 +307,7 @@ pub fn parse(self: *Self) ParseError!void {
                         inline else => |ptr, label| ptr.* = @field(flag_val, @tagName(label)),
                     },
                 }
+                break;
             }
         } else {
             self.parse_error = ParseError.Unknown;
